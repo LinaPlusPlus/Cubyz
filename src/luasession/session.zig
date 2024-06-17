@@ -1,5 +1,4 @@
 const std = @import("std");
-const Channel = @import("fifoPolyfill.zig").Channel;
 const ziglua = @import("root").ziglua;
 const LuaEngine = ziglua.Lua;
 

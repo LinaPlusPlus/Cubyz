@@ -1,5 +1,8 @@
 const std = @import("std");
 
+pub const luasession = @import("luasession");
+pub const ziglua = @import("ziglua");
+
 pub const gui = @import("gui");
 pub const server = @import("server");
 

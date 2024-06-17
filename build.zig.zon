@@ -42,5 +42,9 @@
 			.hash = "1220a2630c691c0ce40afd51022941b0544c9bacc9190667f701036e0eb3ec6333d5",
 			.lazy = true,
 		},
+		.ziglua = .{
+            .url = "https://github.com/natecraddock/ziglua/archive/d853aa9450ae568a39ea02d7082e85bafc33f735.tar.gz",
+            .hash = "1220affeb3fe37ef09411b5a213b5fdf9bb6568e9913bade204694648983a8b2776d",
+        },
 	},
 }

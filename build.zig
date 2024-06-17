@@ -14,9 +14,9 @@ pub fn build(b: *std.Build) !void {
 	const exe = b.addExecutable(.{
 		.name = "Cubyzig",
 		.root_source_file = b.path("src/main.zig"),
-		.target = target,
-		.optimize = optimize,
-		//.sanitize_thread = true,
+								.target = target,
+							 .optimize = optimize,
+							 //.sanitize_thread = true,
 	});
 	exe.linkLibC();
 	exe.linkLibCpp();
@@ -28,86 +28,99 @@ pub fn build(b: *std.Build) !void {
 		else => "none",
 	}});
 
-	var depsName: []const u8 = b.fmt("cubyz_deps_{s}_{s}", .{@tagName(t.cpu.arch), @tagName(t.os.tag)});
-	const useLocalDeps = b.option(bool, "local", "Use local cubyz_deps") orelse false;
-	if(useLocalDeps) depsName = "local";
 
-	const libsDeps = b.lazyDependency(depsName, .{
-		.target = target,
-		.optimize = optimize,
-	}) orelse {
-		// Lazy dependencies with a `url` field will fail here the first time.
-		// build.zig will restart and try again.
-		std.log.info("Downloading cubyz_deps libraries {s}.", .{depsName});
-		return;
-	};
-	const headersDeps = if(useLocalDeps) libsDeps else
+		var depsName: []const u8 = b.fmt("cubyz_deps_{s}_{s}", .{@tagName(t.cpu.arch), @tagName(t.os.tag)});
+		const useLocalDeps = b.option(bool, "local", "Use local cubyz_deps") orelse false;
+		if(useLocalDeps) depsName = "local";
+
+		const libsDeps = b.lazyDependency(depsName, .{
+			.target = target,
+			.optimize = optimize,
+		}) orelse {
+			// Lazy dependencies with a `url` field will fail here the first time.
+			// build.zig will restart and try again.
+			std.log.info("Downloading cubyz_deps libraries {s}.", .{depsName});
+			return;
+		};
+		const headersDeps = if(useLocalDeps) libsDeps else
 		b.lazyDependency("cubyz_deps_headers", .{}) orelse {
-		std.log.info("Downloading cubyz_deps headers {s}.", .{depsName});
-		return;
-	};
+			std.log.info("Downloading cubyz_deps headers {s}.", .{depsName});
+			return;
+		};
 
-	exe.addLibraryPath(libsDeps.path("lib"));
-	exe.addIncludePath(headersDeps.path("include"));
-	exe.linkSystemLibrary(depsLib);
-	exe.addRPath(libsDeps.path("lib")); // TODO: Maybe move the library next to the executable, to make this more portable?
+		const ziglua = b.dependency("ziglua", .{
+			.target = target,
+			.optimize = optimize,
+		});
 
-	if(t.os.tag == .windows) {
-		exe.linkSystemLibrary("ole32");
-		exe.linkSystemLibrary("winmm");
-		exe.linkSystemLibrary("uuid");
-		exe.linkSystemLibrary("gdi32");
-		exe.linkSystemLibrary("opengl32");
-		exe.linkSystemLibrary("ws2_32");
-	} else if(t.os.tag == .linux) {
-		exe.linkSystemLibrary("asound");
-		exe.linkSystemLibrary("x11");
-		exe.linkSystemLibrary("GL");
-	} else if(t.os.tag == .macos) {
-		exe.linkFramework("AudioUnit");
-		exe.linkFramework("AudioToolbox");
-		exe.linkFramework("CoreAudio");
-		exe.linkFramework("CoreServices");
-		exe.linkFramework("Foundation");
-		exe.linkFramework("IOKit");
-		exe.linkFramework("Cocoa");
-		exe.linkFramework("QuartzCore");
-		exe.linkSystemLibrary("X11");
-		exe.addLibraryPath(b.path("/usr/local/GL/lib"));
-		exe.addLibraryPath(b.path("/opt/X11/lib"));
-		exe.addRPath(b.path("../Library"));
-	} else {
-		std.log.err("Unsupported target: {}\n", .{t.os.tag});
-	}
+		exe.addLibraryPath(libsDeps.path("lib"));
+		exe.addIncludePath(headersDeps.path("include"));
+		exe.linkSystemLibrary(depsLib);
+		exe.addRPath(libsDeps.path("lib")); // TODO: Maybe move the library next to the executable, to make this more portable?
 
-	exe.root_module.addAnonymousImport("gui", .{
-		.target = target,
-		.optimize = optimize,
-		.root_source_file = b.path("src/gui/gui.zig"),
-	});
-	exe.root_module.addAnonymousImport("server", .{
-		.target = target,
-		.optimize = optimize,
-		.root_source_file = b.path("src/server/server.zig"),
-	});
+		if(t.os.tag == .windows) {
+			exe.linkSystemLibrary("ole32");
+			exe.linkSystemLibrary("winmm");
+			exe.linkSystemLibrary("uuid");
+			exe.linkSystemLibrary("gdi32");
+			exe.linkSystemLibrary("opengl32");
+			exe.linkSystemLibrary("ws2_32");
+		} else if(t.os.tag == .linux) {
+			exe.linkSystemLibrary("asound");
+			exe.linkSystemLibrary("x11");
+			exe.linkSystemLibrary("GL");
+		} else if(t.os.tag == .macos) {
+			exe.linkFramework("AudioUnit");
+			exe.linkFramework("AudioToolbox");
+			exe.linkFramework("CoreAudio");
+			exe.linkFramework("CoreServices");
+			exe.linkFramework("Foundation");
+			exe.linkFramework("IOKit");
+			exe.linkFramework("Cocoa");
+			exe.linkFramework("QuartzCore");
+			exe.linkSystemLibrary("X11");
+			exe.addLibraryPath(b.path("/usr/local/GL/lib"));
+			exe.addLibraryPath(b.path("/opt/X11/lib"));
+			exe.addRPath(b.path("../Library"));
+		} else {
+			std.log.err("Unsupported target: {}\n", .{t.os.tag});
+		}
 
-	b.installArtifact(exe);
+		exe.root_module.addImport("ziglua", ziglua.module("ziglua"));
 
-	const run_cmd = b.addRunArtifact(exe);
-	run_cmd.step.dependOn(b.getInstallStep());
-	if (b.args) |args| {
-		run_cmd.addArgs(args);
-	}
+		exe.root_module.addAnonymousImport("gui", .{
+			.target = target,
+			.optimize = optimize,
+			.root_source_file = b.path("src/gui/gui.zig"),
+		});
+		exe.root_module.addAnonymousImport("server", .{
+			.target = target,
+			.optimize = optimize,
+			.root_source_file = b.path("src/server/server.zig"),
+		});
+		exe.root_module.addAnonymousImport("luasession", .{
+			.target = target,
+			.optimize = optimize,
+			.root_source_file = b.path("src/luasession/session.zig"),
+		});
 
-	const run_step = b.step("run", "Run the app");
-	run_step.dependOn(&run_cmd.step);
+		b.installArtifact(exe);
 
-	const exe_tests = b.addTest(.{
-		.root_source_file = b.path("src/main.zig"),
-		.target = target,
-		.optimize = optimize,
-	});
+		const run_cmd = b.addRunArtifact(exe);
+		run_cmd.step.dependOn(b.getInstallStep());
+		if (b.args) |args| {
+			run_cmd.addArgs(args);
+		}
 
-	const test_step = b.step("test", "Run unit tests");
-	test_step.dependOn(&exe_tests.step);
+		const run_step = b.step("run", "Run the app");
+		run_step.dependOn(&run_cmd.step);
+
+		const exe_tests = b.addTest(.{
+			.root_source_file = b.path("src/main.zig"),
+									.target = target,
+							  .optimize = optimize,
+		});
+
+		const test_step = b.step("test", "Run unit tests");
+		test_step.dependOn(&exe_tests.step);
 }

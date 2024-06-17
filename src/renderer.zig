@@ -130,7 +130,7 @@ pub fn render(playerPosition: Vec3d) void {
 		ambient[1] = @max(0.1, world.ambientLight);
 		ambient[2] = @max(0.1, world.ambientLight);
 		const skyColor = vec.xyz(world.clearColor);
-		game.fog.color = skyColor;
+		game.fog.skyColor = skyColor;
 
 		renderWorld(world, ambient, skyColor, playerPosition);
 		const startTime = std.time.milliTimestamp();
@@ -263,7 +263,7 @@ pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPo
 		Bloom.bindReplacementImage();
 	}
 	gpu_performance_measuring.startQuery(.final_copy);
-	c.glViewport(0, 0, main.Window.width, main.Window.height);
+	if(activeFrameBuffer == 0) c.glViewport(0, 0, main.Window.width, main.Window.height);
 	worldFrameBuffer.bindTexture(c.GL_TEXTURE3);
 	worldFrameBuffer.bindDepthTexture(c.GL_TEXTURE4);
 	worldFrameBuffer.unbind();
@@ -271,7 +271,7 @@ pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPo
 	c.glUniform1i(deferredUniforms.color, 3);
 	c.glUniform1i(deferredUniforms.depthTexture, 4);
 	if(!blocks.meshes.hasFog(playerBlock)) {
-		c.glUniform3fv(deferredUniforms.@"fog.color", 1, @ptrCast(&game.fog.color));
+		c.glUniform3fv(deferredUniforms.@"fog.color", 1, @ptrCast(&game.fog.skyColor));
 		c.glUniform1f(deferredUniforms.@"fog.density", game.fog.density);
 	} else {
 		const fogColor = blocks.meshes.fogColor(playerBlock);
@@ -337,7 +337,7 @@ const Bloom = struct {
 		buffer1.bind();
 		c.glUniform1i(colorExtractUniforms.depthTexture, 4);
 		if(!blocks.meshes.hasFog(playerBlock)) {
-			c.glUniform3fv(colorExtractUniforms.@"fog.color", 1, @ptrCast(&game.fog.color));
+			c.glUniform3fv(colorExtractUniforms.@"fog.color", 1, @ptrCast(&game.fog.skyColor));
 			c.glUniform1f(colorExtractUniforms.@"fog.density", game.fog.density);
 		} else {
 			const fogColor = blocks.meshes.fogColor(playerBlock);
@@ -530,7 +530,10 @@ pub const MenuBackGround = struct {
 
 		// Change the viewport and the matrices to render 4 cube faces:
 
+		const oldResolutionScale = main.settings.resolutionScale;
+		main.settings.resolutionScale = 1;
 		updateViewport(size, size, 90.0);
+		main.settings.resolutionScale = oldResolutionScale;
 		defer updateViewport(Window.width, Window.height, settings.fov);
 		
 		var buffer: graphics.FrameBuffer = undefined;

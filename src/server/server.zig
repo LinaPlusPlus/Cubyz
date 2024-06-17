@@ -8,6 +8,11 @@ const ConnectionManager = network.ConnectionManager;
 const utils = main.utils;
 const vec = main.vec;
 const Vec3d = vec.Vec3d;
+const LuaSession = main.luasession.LuaSession;
+
+// renaming `Lua` to `LuaEngine` for clarity reasons
+// some may just use `lua` for var names anyway
+const LuaEngine = main.ziglua.Lua;
 
 pub const ServerWorld = @import("world.zig").ServerWorld;
 pub const terrain = @import("terrain/terrain.zig");
@@ -110,6 +115,11 @@ pub const User = struct {
 pub const updatesPerSec: u32 = 20;
 const updateNanoTime: u32 = 1000000000/20;
 
+pub var luaGPA = std.heap.GeneralPurposeAllocator(.{}){};
+pub const luaAllocator: std.mem.Allocator = luaGPA.allocator();
+pub var luaEngine: ?*LuaEngine = null; //TODO HACK lacking deinit
+pub var luaSession: ?LuaSession = null; //TODO HACK lacking deinit
+
 pub var world: ?*ServerWorld = null;
 pub var users: main.List(*User) = undefined;
 pub var userDeinitList: main.List(*User) = undefined;
@@ -125,6 +135,21 @@ pub var thread: ?std.Thread = null;
 
 fn init(name: []const u8) void {
 	std.debug.assert(world == null); // There can only be one world.
+
+	luaEngine = LuaEngine.init(&luaAllocator) catch |err| {
+		std.log.err("Failed to create lua engine on the server side: {s}", .{@errorName(err)});
+		@panic("Can't start lua engine on the server.");
+	};
+	std.log.info("server lua: Created Engine",.{});
+
+	luaSession = LuaSession {};
+	(luaSession orelse unreachable).init(luaEngine orelse unreachable) catch |err| {
+		std.log.err("Failed to create lua session on the server side: {s}", .{@errorName(err)});
+		@panic("Can't start lua session on the server.");
+	};
+	std.log.info("server lua: Created Session",.{});
+
+
 	command.init();
 	users = main.List(*User).init(main.globalAllocator);
 	userDeinitList = main.List(*User).init(main.globalAllocator);
@@ -143,6 +168,7 @@ fn init(name: []const u8) void {
 		std.log.err("Failed to generate world: {s}", .{@errorName(err)});
 		@panic("Can't generate world.");
 	};
+
 	if(true) blk: { // singleplayer // TODO: Configure this in the server settings.
 		const user = User.initAndIncreaseRefCount(connectionManager, "127.0.0.1:47650") catch |err| {
 			std.log.err("Cannot create singleplayer user {s}", .{@errorName(err)});

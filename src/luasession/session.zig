@@ -8,6 +8,6 @@ pub const LuaSession = struct {
         std.debug.assert(self.initialized == false);
         self.initialized = true;
         luaEngine.pushInteger(42);
-        std.debug.print("lua: {}\n", .{try luaEngine.toInteger(1)});
+        //std.debug.print("lua: {}\n", .{try luaEngine.toInteger(1)});
     }
 };

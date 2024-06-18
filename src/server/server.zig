@@ -140,15 +140,31 @@ fn init(name: []const u8) void {
 		std.log.err("Failed to create lua engine on the server side: {s}", .{@errorName(err)});
 		@panic("Can't start lua engine on the server.");
 	};
-	std.log.info("server lua: Created Engine",.{});
+	std.log.info("server init: Created Lua Engine",.{});
+
+	{
+		var ok = true;
+		var lua = (luaEngine orelse unreachable);
+		lua.loadFile("server_init_contextless.lua",.text) catch {
+			// If there was an error, Lua will place an error string on the top of the stack.
+			// Here we print out the string to inform the user of the issue.
+			std.log.warn("skipping contextless init file: {s}\n", .{lua.toString(-1) catch unreachable});
+
+			// Remove the error from the stack and go back to the prompt
+			lua.pop(1);
+			ok = false;
+		};
+		if(ok){
+			std.log.info("loaded contextless init file",.{});
+		}
+	}
 
 	luaSession = LuaSession {};
 	(luaSession orelse unreachable).init(luaEngine orelse unreachable) catch |err| {
 		std.log.err("Failed to create lua session on the server side: {s}", .{@errorName(err)});
 		@panic("Can't start lua session on the server.");
 	};
-	std.log.info("server lua: Created Session",.{});
-
+	std.log.info("server init: Created Lua Session",.{});
 
 	command.init();
 	users = main.List(*User).init(main.globalAllocator);
@@ -157,19 +173,25 @@ fn init(name: []const u8) void {
 	connectionManager = ConnectionManager.init(main.settings.defaultPort, false) catch |err| {
 		std.log.err("Couldn't create socket: {s}", .{@errorName(err)});
 		@panic("Could not open Server.");
-	}; // TODO Configure the second argument in the server settings.
+	};
+	// TODO Configure the second argument in the server settings.
 	// TODO: Load the assets.
+	std.log.info("server init: Socket Created", .{});
 
 	world = ServerWorld.init(name, null) catch |err| {
 		std.log.err("Failed to create world: {s}", .{@errorName(err)});
 		@panic("Can't create world.");
 	};
+	std.log.info("server init: World Created", .{});
+
 	world.?.generate() catch |err| {
 		std.log.err("Failed to generate world: {s}", .{@errorName(err)});
 		@panic("Can't generate world.");
 	};
+	std.log.info("server init: World Generated", .{});
 
 	if(true) blk: { // singleplayer // TODO: Configure this in the server settings.
+		defer std.log.info("server init: Created Singleplayer", .{});
 		const user = User.initAndIncreaseRefCount(connectionManager, "127.0.0.1:47650") catch |err| {
 			std.log.err("Cannot create singleplayer user {s}", .{@errorName(err)});
 			break :blk;
@@ -177,6 +199,8 @@ fn init(name: []const u8) void {
 		defer user.decreaseRefCount();
 		user.isLocal = true;
 	}
+
+	std.log.info("server init: Complete", .{});
 }
 
 fn deinit() void {

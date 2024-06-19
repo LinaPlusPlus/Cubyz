@@ -1,6 +1,6 @@
 const std = @import("std");
 const ziglua = @import("root").ziglua;
-const LuaEngine = ziglua.Lua;
+const LuaState = ziglua.Lua;
 
 pub const Error = error {
     DoubleInit,
@@ -9,39 +9,55 @@ pub const Error = error {
     IOError,
 };
 
+pub const Platform = enum {
+    Any,
+    Server,
+    Client,
+};
+
 pub const LuaSession = struct {
     initialized: bool = false,
     eventSystem: bool = false, //represents initialized check and anyopaque table key
-    pub fn init(self: *LuaSession, luaEngine: *LuaEngine) anyerror!void {
+    luaState: *LuaState = undefined,
+    pub fn init(self: *LuaSession, luaState: *LuaState) anyerror!void {
         std.debug.assert(self.*.initialized == false);
         self.*.initialized = true;
-        luaEngine.pushInteger(42);
-        //std.debug.print("lua: {}\n", .{try luaEngine.toInteger(1)});
-        luaEngine.pop(-1);
-        //_ = luaEngine; // var IS USED
+        self.*.luaState = luaState;
     }
 
-    pub fn installCommonSystems(self: *LuaSession, luaEngine: *LuaEngine) anyerror!void {
-        luaEngine.openLibs();
-        try self.installEventSystem(luaEngine);
+    pub fn installCommonSystems(self: *LuaSession) anyerror!void {
+        std.debug.assert(self.*.initialized == true);
+        const luaState = self.*.luaState;
+        luaState.openLibs();
+        const modList = @import("moduleList.zig");
+        inline for(@typeInfo(modList).Struct.decls) |decl| {
+                 _ = @field(modList, decl.name);
+        }
+        try self.installEventSystem();
     }
 
-    pub fn installEventSystem(self: *LuaSession, luaEngine: *LuaEngine) anyerror!void {
+    pub fn installEventSystem(self: *LuaSession) anyerror!void {
+        std.debug.assert(self.*.initialized == true);
+        const luaState = self.*.luaState;
+        
         std.debug.assert(self.*.eventSystem == false);
         self.*.eventSystem = true;
-        luaEngine.pushLightUserdata(&(self.*.eventSystem));
-        luaEngine.newTable();
-        luaEngine.setTable((ziglua.registry_index));
+        luaState.pushLightUserdata(&(self.*.eventSystem));
+        luaState.newTable();
+        luaState.setTable((ziglua.registry_index));
     }
 
     //TODO HACK file string is a const, change to *string or zig equivlant
     //TODO from server.init(...) inline into function;
-    pub fn loadContextlessFile(self: *LuaSession, luaEngine: *LuaEngine) anyerror!void {
-        try luaEngine.loadFile("server_init_contextless.lua",.text);
+    pub fn loadContextlessFile(self: *LuaSession) anyerror!void {
+        std.debug.assert(self.*.initialized == true);
+        const luaState = self.*.luaState;
+        
+        std.debug.assert(self.*.initialized == true);
+        try luaState.loadFile("server_init_contextless.lua",.text);
         // 0 inputs 0, returns, index of 0 for some reason
         // argument 3 is `0` in this simmlar function, blindly cloning
         // https://github.com/natecraddock/ziglua/blob/a7cf85fb871a95a46d4222fe3abdd3946e3e0dab/src/lib.zig#L2521
-        try luaEngine.protectedCall(0,0,0);
-        _ = self; //TEMP;
+        try luaState.protectedCall(0,0,0);
     }
 };

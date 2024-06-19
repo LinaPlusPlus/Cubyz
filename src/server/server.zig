@@ -10,9 +10,9 @@ const vec = main.vec;
 const Vec3d = vec.Vec3d;
 const LuaSession = main.luasession.LuaSession;
 
-// renaming `Lua` to `LuaEngine` for clarity reasons
+// renaming `Lua` to `LuaState` for clarity reasons
 // some may just use `lua` for var names anyway
-const LuaEngine = main.ziglua.Lua;
+const LuaState = main.ziglua.Lua;
 
 pub const ServerWorld = @import("world.zig").ServerWorld;
 pub const terrain = @import("terrain/terrain.zig");
@@ -117,7 +117,7 @@ const updateNanoTime: u32 = 1000000000/20;
 
 pub var luaGPA = std.heap.GeneralPurposeAllocator(.{}){};
 pub const luaAllocator: std.mem.Allocator = luaGPA.allocator();
-pub var luaEngine: ?*LuaEngine = null; //TODO HACK lacking deinit
+pub var luaState: ?*LuaState = null; //TODO HACK lacking deinit
 pub var luaSession: ?LuaSession = null; //TODO HACK lacking deinit
 
 pub var world: ?*ServerWorld = null;
@@ -138,25 +138,25 @@ fn init(name: []const u8) void {
 
 	command.init();
 
-	luaEngine = LuaEngine.init(&luaAllocator) catch |err| {
-		std.log.err("Failed to create lua engine on the server side: {s}", .{@errorName(err)});
-		@panic("Can't start lua engine on the server.");
+	luaState = LuaState.init(&luaAllocator) catch |err| {
+		std.log.err("Failed to create lua state on the server side: {s}", .{@errorName(err)});
+		@panic("Can't start lua state on the server.");
 	};
-	std.log.info("server init: Created Lua engine",.{});
+	std.log.info("server init: Created Lua state",.{});
 
 	luaSession = LuaSession {};
 
 	// ref these objects to avoid constant null resolving
-	const knownLuaEngine = (luaEngine orelse unreachable);
+	const knownLuaState = (luaState orelse unreachable);
  	var knownLuaSession = (luaSession orelse unreachable);
 
-	knownLuaSession.init(knownLuaEngine) catch |err| {
+	knownLuaSession.init(knownLuaState) catch |err| {
 		std.log.err("Failed to create lua session on the server side: {s}", .{@errorName(err)});
 		@panic("Can't start lua session on the server.");
 	};
 	std.log.info("server init: Created Lua Session",.{});
 
-	knownLuaSession.installCommonSystems(knownLuaEngine) catch |err| {
+	knownLuaSession.installCommonSystems() catch |err| {
 		std.log.err("Failed to add our own lua libraries on the server side: {s}", .{@errorName(err)});
 		@panic("Can't add lua libraries on the server.");
 	};
@@ -166,11 +166,11 @@ fn init(name: []const u8) void {
 	// while used for its ability to use `break` keyword;
 	// TODO replace while with somthing better
 	while (true) {
-		knownLuaSession.loadContextlessFile(knownLuaEngine) catch {
+		knownLuaSession.loadContextlessFile() catch {
 			// if failed
-			std.log.warn("server init: Contextless init file had an error, skipped: {s}\n", .{knownLuaEngine.toString(-1) catch unreachable});
+			std.log.warn("server init: Contextless init file had an error, skipped: {s}\n", .{knownLuaState.toString(-1) catch unreachable});
 			// Remove the error from the stack and go back to the prompt
-			knownLuaEngine.pop(1);
+			knownLuaState.pop(1);
 			break;
 		};
 		// if success

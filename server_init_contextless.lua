@@ -6,3 +6,4 @@
 -- it is mainly here for debugging.
 
 
+print(debug);

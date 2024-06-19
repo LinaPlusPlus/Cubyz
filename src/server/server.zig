@@ -136,37 +136,48 @@ pub var thread: ?std.Thread = null;
 fn init(name: []const u8) void {
 	std.debug.assert(world == null); // There can only be one world.
 
+	command.init();
+
 	luaEngine = LuaEngine.init(&luaAllocator) catch |err| {
 		std.log.err("Failed to create lua engine on the server side: {s}", .{@errorName(err)});
 		@panic("Can't start lua engine on the server.");
 	};
-	std.log.info("server init: Created Lua Engine",.{});
-
-	{
-		var ok = true;
-		var lua = (luaEngine orelse unreachable);
-		lua.loadFile("server_init_contextless.lua",.text) catch {
-			// If there was an error, Lua will place an error string on the top of the stack.
-			// Here we print out the string to inform the user of the issue.
-			std.log.warn("skipping contextless init file: {s}\n", .{lua.toString(-1) catch unreachable});
-
-			// Remove the error from the stack and go back to the prompt
-			lua.pop(1);
-			ok = false;
-		};
-		if(ok){
-			std.log.info("loaded contextless init file",.{});
-		}
-	}
+	std.log.info("server init: Created Lua engine",.{});
 
 	luaSession = LuaSession {};
-	(luaSession orelse unreachable).init(luaEngine orelse unreachable) catch |err| {
+
+	// ref these objects to avoid constant null resolving
+	const knownLuaEngine = (luaEngine orelse unreachable);
+ 	var knownLuaSession = (luaSession orelse unreachable);
+
+	knownLuaSession.init(knownLuaEngine) catch |err| {
 		std.log.err("Failed to create lua session on the server side: {s}", .{@errorName(err)});
 		@panic("Can't start lua session on the server.");
 	};
 	std.log.info("server init: Created Lua Session",.{});
 
-	command.init();
+	knownLuaSession.installCommonSystems(knownLuaEngine) catch |err| {
+		std.log.err("Failed to add our own lua libraries on the server side: {s}", .{@errorName(err)});
+		@panic("Can't add lua libraries on the server.");
+	};
+	std.log.info("server init: Added Lua libraries",.{});
+
+	// load the contextless init file
+	// while used for its ability to use `break` keyword;
+	// TODO replace while with somthing better
+	while (true) {
+		knownLuaSession.loadContextlessFile(knownLuaEngine) catch {
+			// if failed
+			std.log.warn("server init: Contextless init file had an error, skipped: {s}\n", .{knownLuaEngine.toString(-1) catch unreachable});
+			// Remove the error from the stack and go back to the prompt
+			knownLuaEngine.pop(1);
+			break;
+		};
+		// if success
+		std.log.info("server init: Executed contextless init file",.{});
+		break;
+	}
+
 	users = main.List(*User).init(main.globalAllocator);
 	userDeinitList = main.List(*User).init(main.globalAllocator);
 	lastTime = std.time.nanoTimestamp();
@@ -176,19 +187,19 @@ fn init(name: []const u8) void {
 	};
 	// TODO Configure the second argument in the server settings.
 	// TODO: Load the assets.
-	std.log.info("server init: Socket Created", .{});
+	std.log.info("server init: Socket created", .{});
 
 	world = ServerWorld.init(name, null) catch |err| {
 		std.log.err("Failed to create world: {s}", .{@errorName(err)});
 		@panic("Can't create world.");
 	};
-	std.log.info("server init: World Created", .{});
+	std.log.info("server init: World created", .{});
 
 	world.?.generate() catch |err| {
 		std.log.err("Failed to generate world: {s}", .{@errorName(err)});
 		@panic("Can't generate world.");
 	};
-	std.log.info("server init: World Generated", .{});
+	std.log.info("server init: World generated", .{});
 
 	if(true) blk: { // singleplayer // TODO: Configure this in the server settings.
 		defer std.log.info("server init: Created Singleplayer", .{});

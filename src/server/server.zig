@@ -156,7 +156,7 @@ fn init(name: []const u8) void {
 	};
 	std.log.info("server init: Created Lua Session",.{});
 
-	knownLuaSession.installCommonSystems() catch |err| {
+	knownLuaSession.installCommonSystems(.Server) catch |err| {
 		std.log.err("Failed to add our own lua libraries on the server side: {s}", .{@errorName(err)});
 		@panic("Can't add lua libraries on the server.");
 	};

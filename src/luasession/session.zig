@@ -1,6 +1,9 @@
 const std = @import("std");
 const ziglua = @import("root").ziglua;
 const LuaState = ziglua.Lua;
+const modList = @import("libraryList.zig");
+
+const modLength = @typeInfo(modList).Struct.decls.len;
 
 pub const Error = error {
     DoubleInit,
@@ -10,41 +13,38 @@ pub const Error = error {
 };
 
 pub const Platform = enum {
-    Any,
     Server,
     Client,
+};
+
+pub const Userdata = union(enum) {
+    None, //no special handle
+    Unique, // just has to be unique 
+    //WIP
 };
 
 pub const LuaSession = struct {
     initialized: bool = false,
     eventSystem: bool = false, //represents initialized check and anyopaque table key
+    
     luaState: *LuaState = undefined,
+    
+    
     pub fn init(self: *LuaSession, luaState: *LuaState) anyerror!void {
         std.debug.assert(self.*.initialized == false);
         self.*.initialized = true;
         self.*.luaState = luaState;
     }
 
-    pub fn installCommonSystems(self: *LuaSession) anyerror!void {
+    pub fn installCommonSystems(self: *LuaSession, targetPlatform: Platform) anyerror!void {
         std.debug.assert(self.*.initialized == true);
         const luaState = self.*.luaState;
         luaState.openLibs();
-        const modList = @import("moduleList.zig");
+            
         inline for(@typeInfo(modList).Struct.decls) |decl| {
-                 _ = @field(modList, decl.name);
+            std.log.info("install {s}",.{decl.name});
+            _ = try @field(modList, decl.name).install(self,targetPlatform);
         }
-        try self.installEventSystem();
-    }
-
-    pub fn installEventSystem(self: *LuaSession) anyerror!void {
-        std.debug.assert(self.*.initialized == true);
-        const luaState = self.*.luaState;
-        
-        std.debug.assert(self.*.eventSystem == false);
-        self.*.eventSystem = true;
-        luaState.pushLightUserdata(&(self.*.eventSystem));
-        luaState.newTable();
-        luaState.setTable((ziglua.registry_index));
     }
 
     //TODO HACK file string is a const, change to *string or zig equivlant

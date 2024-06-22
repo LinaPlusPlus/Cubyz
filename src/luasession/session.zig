@@ -1,7 +1,7 @@
 const std = @import("std");
 const ziglua = @import("root").ziglua;
 const LuaState = ziglua.Lua;
-const modList = @import("libraryList.zig");
+const modList = @import("libraries/_index.zig");
 
 const modLength = @typeInfo(modList).Struct.decls.len;
 
@@ -18,8 +18,8 @@ pub const Platform = enum {
 };
 
 pub const Userdata = union(enum) {
-    None, //no special handle
-    Unique, // just has to be unique 
+    None, // an "empty" userdata
+    Unique, // a strictly unique userdata
     //WIP
 };
 
@@ -39,10 +39,11 @@ pub const LuaSession = struct {
     pub fn installCommonSystems(self: *LuaSession, targetPlatform: Platform) anyerror!void {
         std.debug.assert(self.*.initialized == true);
         const luaState = self.*.luaState;
+        std.log.info("install lua library: std",.{});
         luaState.openLibs();
             
         inline for(@typeInfo(modList).Struct.decls) |decl| {
-            std.log.info("install {s}",.{decl.name});
+            std.log.info("install lua library: {s}",.{decl.name});
             _ = try @field(modList, decl.name).install(self,targetPlatform);
         }
     }
@@ -60,4 +61,13 @@ pub const LuaSession = struct {
         // https://github.com/natecraddock/ziglua/blob/a7cf85fb871a95a46d4222fe3abdd3946e3e0dab/src/lib.zig#L2521
         try luaState.protectedCall(0,0,0);
     }
+    
+    pub fn setKeyToFunction(self: *LuaSession, name: []const u8, func: ziglua.ZigFn) void {
+        const luaState = self.*.luaState; 
+        _ = luaState.pushString(name); //push `k`
+        luaState.pushFunction(ziglua.wrap(func)); // push `v`
+        //applies to whatever is on the top of the stack
+        luaState.setTable( -3 ); //pops `k` and `v`
+    }
 };
+

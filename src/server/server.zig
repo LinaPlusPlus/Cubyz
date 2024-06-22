@@ -9,10 +9,10 @@ const utils = main.utils;
 const vec = main.vec;
 const Vec3d = vec.Vec3d;
 const LuaSession = main.luasession.LuaSession;
-
 // renaming `Lua` to `LuaState` for clarity reasons
 // some may just use `lua` for var names anyway
 const LuaState = main.ziglua.Lua;
+
 
 pub const ServerWorld = @import("world.zig").ServerWorld;
 pub const terrain = @import("terrain/terrain.zig");
@@ -21,6 +21,7 @@ pub const storage = @import("storage.zig");
 
 const command = @import("command/_command.zig");
 
+const specificLuaLibs = @import("luaLibraries/_index.zig");
 
 pub const User = struct {
 	conn: *Connection = undefined,
@@ -133,50 +134,17 @@ pub var mutex: std.Thread.Mutex = .{};
 
 pub var thread: ?std.Thread = null;
 
+fn installServerOnlyLuaMods() anyerror!void {
+	inline for(@typeInfo(specificLuaLibs).Struct.decls) |decl| {
+		std.log.info("install server side lua library: {s}",.{decl.name});
+		_ = try @field(specificLuaLibs, decl.name).install();
+	}
+}
+
 fn init(name: []const u8) void {
 	std.debug.assert(world == null); // There can only be one world.
 
 	command.init();
-
-	luaState = LuaState.init(&luaAllocator) catch |err| {
-		std.log.err("Failed to create lua state on the server side: {s}", .{@errorName(err)});
-		@panic("Can't start lua state on the server.");
-	};
-	std.log.info("server init: Created Lua state",.{});
-
-	luaSession = LuaSession {};
-
-	// ref these objects to avoid constant null resolving
-	const knownLuaState = (luaState orelse unreachable);
- 	var knownLuaSession = (luaSession orelse unreachable);
-
-	knownLuaSession.init(knownLuaState) catch |err| {
-		std.log.err("Failed to create lua session on the server side: {s}", .{@errorName(err)});
-		@panic("Can't start lua session on the server.");
-	};
-	std.log.info("server init: Created Lua Session",.{});
-
-	knownLuaSession.installCommonSystems(.Server) catch |err| {
-		std.log.err("Failed to add our own lua libraries on the server side: {s}", .{@errorName(err)});
-		@panic("Can't add lua libraries on the server.");
-	};
-	std.log.info("server init: Added Lua libraries",.{});
-
-	// load the contextless init file
-	// while used for its ability to use `break` keyword;
-	// TODO replace while with somthing better
-	while (true) {
-		knownLuaSession.loadContextlessFile() catch {
-			// if failed
-			std.log.warn("server init: Contextless init file had an error, skipped: {s}\n", .{knownLuaState.toString(-1) catch unreachable});
-			// Remove the error from the stack and go back to the prompt
-			knownLuaState.pop(1);
-			break;
-		};
-		// if success
-		std.log.info("server init: Executed contextless init file",.{});
-		break;
-	}
 
 	users = main.List(*User).init(main.globalAllocator);
 	userDeinitList = main.List(*User).init(main.globalAllocator);
@@ -200,6 +168,54 @@ fn init(name: []const u8) void {
 		@panic("Can't generate world.");
 	};
 	std.log.info("server init: World generated", .{});
+	
+	//BEGIN lua session setup
+	luaState = LuaState.init(&luaAllocator) catch |err| {
+		std.log.err("Failed to create lua state on the server side: {s}", .{@errorName(err)});
+		@panic("Can't start lua state on the server.");
+	};
+	std.log.info("server init: Created Lua state",.{});
+	
+	luaSession = LuaSession {};
+	
+	// ref these objects to avoid constant null resolving
+	const knownLuaState = (luaState orelse unreachable);
+	var knownLuaSession = (luaSession orelse unreachable);
+	
+	knownLuaSession.init(knownLuaState) catch |err| {
+		std.log.err("Failed to create lua session on the server side: {s}", .{@errorName(err)});
+		@panic("Can't start lua session on the server.");
+	};
+	std.log.info("server init: Created Lua Session",.{});
+	
+	knownLuaSession.installCommonSystems(.Server) catch |err| {
+		std.log.err("Failed to add our genaric lua libraries on the server side: {s}", .{@errorName(err)});
+		@panic("Can't add lua libraries on the server.");
+	};
+	
+	installServerOnlyLuaMods() catch |err| {
+		std.log.err("Failed to add our server specific lua libraries on the server side: {s}", .{@errorName(err)});
+		@panic("Can't add lua libraries on the server.");
+	};
+	
+	std.log.info("server init: Added Lua libraries",.{});
+	
+	// load the contextless init file
+	// while used for its ability to use `break` keyword;
+	// TODO replace while with somthing better
+	while (true) {
+		knownLuaSession.loadContextlessFile() catch {
+			// if failed
+			std.log.warn("server init: Contextless init file had an error, skipped: {s}\n", .{knownLuaState.toString(-1) catch unreachable});
+			// Remove the error from the stack and go back to the prompt
+			knownLuaState.pop(1);
+			break;
+		};
+		// if success
+		std.log.info("server init: Executed contextless init file",.{});
+		break;
+	}
+	//END lua session setup
 
 	if(true) blk: { // singleplayer // TODO: Configure this in the server settings.
 		defer std.log.info("server init: Created Singleplayer", .{});

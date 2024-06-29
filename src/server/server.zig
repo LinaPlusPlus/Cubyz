@@ -178,17 +178,13 @@ fn init(name: []const u8) void {
 	
 	luaSession = LuaSession {};
 	
-	// ref these objects to avoid constant null resolving
-	const knownLuaState = (luaState orelse unreachable);
-	var knownLuaSession = (luaSession orelse unreachable);
-	
-	knownLuaSession.init(knownLuaState) catch |err| {
+	luaSession.?.init(luaState.?) catch |err| {
 		std.log.err("Failed to create lua session on the server side: {s}", .{@errorName(err)});
 		@panic("Can't start lua session on the server.");
 	};
 	std.log.info("server init: Created Lua Session",.{});
 	
-	knownLuaSession.installCommonSystems(.Server) catch |err| {
+	luaSession.?.installCommonSystems(.Server) catch |err| {
 		std.log.err("Failed to add our genaric lua libraries on the server side: {s}", .{@errorName(err)});
 		@panic("Can't add lua libraries on the server.");
 	};
@@ -204,11 +200,11 @@ fn init(name: []const u8) void {
 	// while used for its ability to use `break` keyword;
 	// TODO replace while with somthing better
 	while (true) {
-		knownLuaSession.loadContextlessFile() catch {
+		luaSession.?.loadContextlessFile() catch {
 			// if failed
-			std.log.warn("server init: Contextless init file had an error, skipped: {s}\n", .{knownLuaState.toString(-1) catch unreachable});
+			std.log.warn("server init: Contextless init file had an error, skipped: {s}\n", .{luaState.?.toString(-1) catch unreachable});
 			// Remove the error from the stack and go back to the prompt
-			knownLuaState.pop(1);
+			luaState.?.pop(1);
 			break;
 		};
 		// if success

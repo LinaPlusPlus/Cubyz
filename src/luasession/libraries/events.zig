@@ -33,6 +33,8 @@ pub fn install(session: *LuaSession, platform: Platform) anyerror!void {
     // read the documentation for luac functions before use
     
     while (true) { //here for its ability to break;
+        std.debug.assert(luaState.getTop() == 1); //stack should be empty here
+        
         //BEGIN install internal table
         luaState.pushLightUserdata( &eventTablePointer ); // push `testForK`
         _ = luaState.getTable( ziglua.registry_index ); // push `testForV` pop `testForK`
@@ -52,7 +54,7 @@ pub fn install(session: *LuaSession, platform: Platform) anyerror!void {
         //BEGIN add functions to library
         luaState.newTable(); // `lib`
         
-        session.setKeyToFunction("helloWorld",libFunctions.helloWorld);
+        session.addNamedFunctionToTable("helloWorld",libFunctions.helloWorld);
         
         luaState.setGlobal("events"); //pops `lib`
         //END add functions to library

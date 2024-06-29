@@ -27,7 +27,7 @@ pub const LuaSession = struct {
     initialized: bool = false,
     eventSystem: bool = false, //represents initialized check and anyopaque table key
     
-    luaState: *LuaState = undefined,
+    luaState: ?*LuaState = null,
     
     
     pub fn init(self: *LuaSession, luaState: *LuaState) anyerror!void {
@@ -38,7 +38,7 @@ pub const LuaSession = struct {
 
     pub fn installCommonSystems(self: *LuaSession, targetPlatform: Platform) anyerror!void {
         std.debug.assert(self.*.initialized == true);
-        const luaState = self.*.luaState;
+        const luaState = self.*.luaState.?;
         std.log.info("install lua library: std",.{});
         luaState.openLibs();
             
@@ -52,7 +52,7 @@ pub const LuaSession = struct {
     //TODO from server.init(...) inline into function;
     pub fn loadContextlessFile(self: *LuaSession) anyerror!void {
         std.debug.assert(self.*.initialized == true);
-        const luaState = self.*.luaState;
+        const luaState = self.*.luaState orelse unreachable;
         
         std.debug.assert(self.*.initialized == true);
         try luaState.loadFile("server_init_contextless.lua",.text);
@@ -62,8 +62,8 @@ pub const LuaSession = struct {
         try luaState.protectedCall(0,0,0);
     }
     
-    pub fn setKeyToFunction(self: *LuaSession, name: []const u8, func: ziglua.ZigFn) void {
-        const luaState = self.*.luaState; 
+    pub fn addNamedFunctionToTable(self: *LuaSession, name: []const u8, func: ziglua.ZigFn) void {
+        const luaState = self.*.luaState.?;
         _ = luaState.pushString(name); //push `k`
         luaState.pushFunction(ziglua.wrap(func)); // push `v`
         //applies to whatever is on the top of the stack

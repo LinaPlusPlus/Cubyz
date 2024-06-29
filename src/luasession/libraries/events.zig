@@ -26,7 +26,7 @@ pub fn install(session: *LuaSession, platform: Platform) anyerror!void {
         eventTablePointer = .Unique; 
     }
     _ = platform; // we dont care, install everywhere
-    const luaState = session.*.luaState;
+    const luaState: *LuaState = session.luaState.?;
     
     // WARNING the luac API will push and pop 
     // values in ways that are not self evident

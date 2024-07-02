@@ -55,6 +55,8 @@ pub const Player = struct {
 	pub var super: main.server.Entity = .{};
 	pub var id: u32 = 0;
 	pub var isFlying: Atomic(bool) = Atomic(bool).init(false);
+	pub var isGhost: Atomic(bool) = Atomic(bool).init(false);
+	pub var hyperSpeed: Atomic(bool) = Atomic(bool).init(false);
 	pub var mutex: std.Thread.Mutex = std.Thread.Mutex{};
 	pub var inventory__SEND_CHANGES_TO_SERVER: Inventory = undefined;
 	pub var selectedSlot: u32 = 0;
@@ -64,9 +66,8 @@ pub const Player = struct {
 
 	pub var onGround: bool = false;
 
-	pub const radius = 0.3;
-	pub const height = 1.8;
-	pub const eye = 1.7;
+	pub const boundingBoxExtent: Vec3d = .{0.3, 0.3, 0.9};
+	pub const eye = 1.7 - boundingBoxExtent[2];
 	pub const jumpHeight = 1.25;
 
 	fn loadFrom(json: JsonElement) void {
@@ -191,10 +192,80 @@ pub const Player = struct {
 
 	const Direction = enum {x, y, z};
 
+	pub fn collideWithBlock(block: main.blocks.Block, x: i32, y: i32, z: i32, entityPosition: Vec3d, entityBoundingBoxExtent: Vec3d, directionVector: Vec3d) ?struct{box: Box, dist: f64} {
+		var resultBox: ?Box = null;
+		var minDistance: f64 = std.math.floatMax(f64);
+		if(block.collide()) {
+			const model = &models.models.items[block.mode().model(block)];
+
+			const pos = Vec3d{@floatFromInt(x), @floatFromInt(y), @floatFromInt(z)};
+
+			for (model.neighborFacingQuads) |quads| {
+				for (quads) |quadIndex| {
+					const quad = &models.quads.items[quadIndex];
+					if (triangleAABB(.{quad.corners[0] + quad.normal + pos, quad.corners[2] + quad.normal + pos, quad.corners[1] + quad.normal + pos}, entityPosition, entityBoundingBoxExtent)) {
+						const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + quad.normal + pos;
+						const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + quad.normal + pos;
+						const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
+						if(dist < minDistance) {
+							resultBox = .{.min = min, .max = max};
+							minDistance = dist;
+						} else if(dist == minDistance) {
+							resultBox.?.min = @min(resultBox.?.min, min);
+							resultBox.?.max = @min(resultBox.?.max, max);
+						}
+					}
+					if (triangleAABB(.{quad.corners[1] + quad.normal + pos, quad.corners[2] + quad.normal + pos, quad.corners[3] + quad.normal + pos}, entityPosition, entityBoundingBoxExtent)) {
+						const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + quad.normal + pos;
+						const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + quad.normal + pos;
+						const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
+						if(dist < minDistance) {
+							resultBox = .{.min = min, .max = max};
+							minDistance = dist;
+						} else if(dist == minDistance) {
+							resultBox.?.min = @min(resultBox.?.min, min);
+							resultBox.?.max = @min(resultBox.?.max, max);
+						}
+					}
+				}
+			}
+
+			for (model.internalQuads) |quadIndex| {
+				const quad = &models.quads.items[quadIndex];
+				if (triangleAABB(.{quad.corners[0] + pos, quad.corners[2] + pos, quad.corners[1] + pos}, entityPosition, entityBoundingBoxExtent)) {
+					const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + pos;
+					const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + pos;
+					const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
+					if(dist < minDistance) {
+						resultBox = .{.min = min, .max = max};
+						minDistance = dist;
+					} else if(dist == minDistance) {
+						resultBox.?.min = @min(resultBox.?.min, min);
+						resultBox.?.max = @min(resultBox.?.max, max);
+					}
+				}
+				if (triangleAABB(.{quad.corners[1] + pos, quad.corners[2] + pos, quad.corners[3] + pos}, entityPosition, entityBoundingBoxExtent)) {
+					const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + pos;
+					const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + pos;
+					const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
+					if(dist < minDistance) {
+						resultBox = .{.min = min, .max = max};
+						minDistance = dist;
+					} else if(dist == minDistance) {
+						resultBox.?.min = @min(resultBox.?.min, min);
+						resultBox.?.max = @min(resultBox.?.max, max);
+					}
+				}
+			}
+		}
+		if(resultBox) |box| return .{.box = box, .dist = minDistance}
+		else return null;
+	}
+
 	pub fn collides(dir: Direction, amount: f64) ?Box {
 		var boundingBox: Box = .{
-			.min = super.pos - Vec3d{radius, radius, 0},
-			.max = super.pos + Vec3d{radius, radius, height},
+			.min = super.pos - boundingBoxExtent,
+			.max = super.pos + boundingBoxExtent,
 		};
 		switch (dir) {
 			.x => {
@@ -215,7 +286,7 @@ pub const Player = struct {
 		const maxZ: i32 = @intFromFloat(@floor(boundingBox.max[2] - 0.0001));
 
 		const boundingBoxCenter = (boundingBox.min + boundingBox.max)/@as(Vec3d, @splat(2));
-		const boundingBoxExtent = (boundingBox.max - boundingBox.min - @as(Vec3d, @splat(0.0001)))/@as(Vec3d, @splat(2));
+		const fullBoundingBoxExtent = (boundingBox.max - boundingBox.min - @as(Vec3d, @splat(0.0001)))/@as(Vec3d, @splat(2));
 
 		var resultBox: ?Box = null;
 		var minDistance: f64 = std.math.floatMax(f64);
@@ -232,67 +303,13 @@ pub const Player = struct {
 				var z: i32 = maxZ;
 				while (z >= minZ) : (z -= 1) {
 					if (main.renderer.mesh_storage.getBlock(x, y, z)) |block| {
-						if(block.collide()) {
-							const model = &models.models.items[block.mode().model(block)];
-
-							const pos = Vec3d{@floatFromInt(x), @floatFromInt(y), @floatFromInt(z)};
-
-							for (model.neighborFacingQuads) |quads| {
-								for (quads) |quadIndex| {
-									const quad = &models.quads.items[quadIndex];
-									if (triangleAABB(.{quad.corners[0] + quad.normal + pos, quad.corners[2] + quad.normal + pos, quad.corners[1] + quad.normal + pos}, boundingBoxCenter, boundingBoxExtent)) {
-										const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + quad.normal + pos;
-										const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + quad.normal + pos;
-										const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
-										if(dist < minDistance) {
-											resultBox = .{.min = min, .max = max};
-											minDistance = dist;
-										} else if(dist == minDistance) {
-											resultBox.?.min = @min(resultBox.?.min, min);
-											resultBox.?.max = @min(resultBox.?.max, max);
-										}
-									}
-									if (triangleAABB(.{quad.corners[1] + quad.normal + pos, quad.corners[2] + quad.normal + pos, quad.corners[3] + quad.normal + pos}, boundingBoxCenter, boundingBoxExtent)) {
-										const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + quad.normal + pos;
-										const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + quad.normal + pos;
-										const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
-										if(dist < minDistance) {
-											resultBox = .{.min = min, .max = max};
-											minDistance = dist;
-										} else if(dist == minDistance) {
-											resultBox.?.min = @min(resultBox.?.min, min);
-											resultBox.?.max = @min(resultBox.?.max, max);
-										}
-									}
-								}
-							}
-
-							for (model.internalQuads) |quadIndex| {
-								const quad = &models.quads.items[quadIndex];
-								if (triangleAABB(.{quad.corners[0] + pos, quad.corners[2] + pos, quad.corners[1] + pos}, boundingBoxCenter, boundingBoxExtent)) {
-									const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + pos;
-									const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + pos;
-									const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
-									if(dist < minDistance) {
-										resultBox = .{.min = min, .max = max};
-										minDistance = dist;
-									} else if(dist == minDistance) {
-										resultBox.?.min = @min(resultBox.?.min, min);
-										resultBox.?.max = @min(resultBox.?.max, max);
-									}
-								}
-								if (triangleAABB(.{quad.corners[1] + pos, quad.corners[2] + pos, quad.corners[3] + pos}, boundingBoxCenter, boundingBoxExtent)) {
-									const min = @min(@min(quad.corners[0], quad.corners[1]), @min(quad.corners[2], quad.corners[3])) + pos;
-									const max = @max(@max(quad.corners[0], quad.corners[1]), @max(quad.corners[2], quad.corners[3])) + pos;
-									const dist = @min(vec.dot(directionVector, min), vec.dot(directionVector, max));
-									if(dist < minDistance) {
-										resultBox = .{.min = min, .max = max};
-										minDistance = dist;
-									} else if(dist == minDistance) {
-										resultBox.?.min = @min(resultBox.?.min, min);
-										resultBox.?.max = @min(resultBox.?.max, max);
-									}
-								}
+						if(collideWithBlock(block, x, y, z, boundingBoxCenter, fullBoundingBoxExtent, directionVector)) |res| {
+							if(res.dist < minDistance) {
+								resultBox = res.box;
+								minDistance = res.dist;
+							} else if(res.dist == minDistance) {
+								resultBox.?.min = @min(resultBox.?.min, res.box.min);
+								resultBox.?.max = @min(resultBox.?.max, res.box.max);
 							}
 						}
 					}
@@ -483,6 +500,16 @@ pub fn pressAcquireSelectedBlock() void {
 
 pub fn flyToggle() void {
 	Player.isFlying.store(!Player.isFlying.load(.monotonic), .monotonic);
+	if(!Player.isFlying.load(.monotonic)) Player.isGhost.store(false, .monotonic);
+}
+
+pub fn ghostToggle() void {
+	Player.isGhost.store(!Player.isGhost.load(.monotonic), .monotonic);
+	if(Player.isGhost.load(.monotonic)) Player.isFlying.store(true, .monotonic);
+}
+
+pub fn hyperSpeedToggle() void {
+	Player.hyperSpeed.store(!Player.hyperSpeed.load(.monotonic), .monotonic);
 }
 
 pub fn update(deltaTime: f64) void {
@@ -497,11 +524,10 @@ pub fn update(deltaTime: f64) void {
 		}
 
 		var baseFrictionCoefficient: f32 = 50;
-		var speedMultiplier: f32 = 1.0;
+		const speedMultiplier: f32 = if(Player.hyperSpeed.load(.monotonic)) 4.0 else 1.0;
 
 		if (!Player.onGround and !Player.isFlying.load(.monotonic)) {
 			baseFrictionCoefficient = airFrictionCoefficient;
-			speedMultiplier = 1.0;
 		}
 
 		var jumping: bool = false;
@@ -510,33 +536,51 @@ pub fn update(deltaTime: f64) void {
 
 		const forward = vec.rotateZ(Vec3d{0, 1, 0}, -camera.rotation[2]);
 		const right = Vec3d{-forward[1], forward[0], 0};
+		var movementDir: Vec3d = .{0, 0, 0};
+		var movementSpeed: f64 = 0;
 		if(main.Window.grabbed) {
 			if(KeyBoard.key("forward").pressed) {
 				if(KeyBoard.key("sprint").pressed) {
-					if(Player.isFlying.load(.monotonic)) {
-						acc += forward*@as(Vec3d, @splat(128 * fricMul));
+					if(Player.isGhost.load(.monotonic)) {
+						movementSpeed = @max(movementSpeed, 128);
+						movementDir += forward*@as(Vec3d, @splat(128));
+					} else if(Player.isFlying.load(.monotonic)) {
+						movementSpeed = @max(movementSpeed, 32);
+						movementDir += forward*@as(Vec3d, @splat(32));
 					} else {
-						acc += forward*@as(Vec3d, @splat(8 * fricMul));
+						movementSpeed = @max(movementSpeed, 8);
+						movementDir += forward*@as(Vec3d, @splat(8));
 					}
 				} else {
-					acc += forward*@as(Vec3d, @splat(4 * fricMul));
+					movementSpeed = @max(movementSpeed, 4);
+					movementDir += forward*@as(Vec3d, @splat(4));
 				}
 			}
 			if(KeyBoard.key("backward").pressed) {
-				acc += forward*@as(Vec3d, @splat(-4 * fricMul));
+				movementSpeed = @max(movementSpeed, 4);
+				movementDir += forward*@as(Vec3d, @splat(-4));
 			}
 			if(KeyBoard.key("left").pressed) {
-				acc += right*@as(Vec3d, @splat(4 * fricMul));
+				movementSpeed = @max(movementSpeed, 4);
+				movementDir += right*@as(Vec3d, @splat(4));
 			}
 			if(KeyBoard.key("right").pressed) {
-				acc += right*@as(Vec3d, @splat(-4 * fricMul));
+				movementSpeed = @max(movementSpeed, 4);
+				movementDir += right*@as(Vec3d, @splat(-4));
 			}
 			if(KeyBoard.key("jump").pressed) {
 				if(Player.isFlying.load(.monotonic)) {
 					if(KeyBoard.key("sprint").pressed) {
-						acc[2] += 59.45 * fricMul;
+						if(Player.isGhost.load(.monotonic)) {
+							movementSpeed = @max(movementSpeed, 60);
+							movementDir[2] += 60;
+						} else {
+							movementSpeed = @max(movementSpeed, 25);
+							movementDir[2] += 25;
+						}
 					} else {
-						acc[2] += 5.45 * fricMul;
+						movementSpeed = @max(movementSpeed, 5.5);
+						movementDir[2] += 5.5;
 					}
 				} else if (Player.onGround) {
 					jumping = true;
@@ -545,11 +589,22 @@ pub fn update(deltaTime: f64) void {
 			if(KeyBoard.key("fall").pressed) {
 				if(Player.isFlying.load(.monotonic)) {
 					if(KeyBoard.key("sprint").pressed) {
-						acc[2] += -59.45 * fricMul;
+						if(Player.isGhost.load(.monotonic)) {
+							movementSpeed = @max(movementSpeed, 60);
+							movementDir[2] -= 60;
+						} else {
+							movementSpeed = @max(movementSpeed, 25);
+							movementDir[2] -= 25;
+						}
 					} else {
-						acc[2] += -5.45 * fricMul;
+						movementSpeed = @max(movementSpeed, 5.5);
+						movementDir[2] -= 5.5;
 					}
 				}
+			}
+			if(movementSpeed != 0 and vec.lengthSquare(movementDir) != 0) {
+				movementDir = vec.normalize(movementDir);
+				acc += movementDir*@as(Vec3d, @splat(movementSpeed*fricMul));
 			}
 
 			const newSlot: i32 = @as(i32, @intCast(Player.selectedSlot)) -% @as(i32, @intFromFloat(main.Window.scrollOffset));
@@ -597,16 +652,16 @@ pub fn update(deltaTime: f64) void {
 		}
 	}
 
-	{
+	if(!Player.isGhost.load(.monotonic)) {
 		Player.mutex.lock();
 		defer Player.mutex.unlock();
 
 		Player.super.pos[0] += move[0];
 		if (Player.collides(.x, -move[0])) |box| {
 			var step = false;
-			if (box.max[2] - Player.super.pos[2] <= 0.5 and Player.onGround) {
+			if (box.max[2] - Player.super.pos[2] + Player.boundingBoxExtent[2] <= 0.5001 and Player.onGround) {
 				const old = Player.super.pos[2];
-				Player.super.pos[2] = box.max[2] + 0.0001;
+				Player.super.pos[2] = box.max[2] + Player.boundingBoxExtent[2] + 0.0001;
 				if (Player.collides(.x, 0)) |_| {
 					Player.super.pos[2] = old;
 				} else {
@@ -616,12 +671,12 @@ pub fn update(deltaTime: f64) void {
 			if (!step)
 			{
 				if (move[0] < 0) {
-					Player.super.pos[0] = box.max[0] + Player.radius;
+					Player.super.pos[0] = box.max[0] + Player.boundingBoxExtent[0];
 					while (Player.collides(.x, 0)) |_| {
 						Player.super.pos[0] += 1;
 					}
 				} else {
-					Player.super.pos[0] = box.min[0] - Player.radius;
+					Player.super.pos[0] = box.min[0] - Player.boundingBoxExtent[0];
 					while (Player.collides(.x, 0)) |_| {
 						Player.super.pos[0] -= 1;
 					}
@@ -633,9 +688,9 @@ pub fn update(deltaTime: f64) void {
 		Player.super.pos[1] += move[1];
 		if (Player.collides(.y, -move[1])) |box| {
 			var step = false;
-			if (box.max[2] - Player.super.pos[2] <= 0.5 and Player.onGround) {
+			if (box.max[2] - Player.super.pos[2] + Player.boundingBoxExtent[2] <= 0.5001 and Player.onGround) {
 				const old = Player.super.pos[2];
-				Player.super.pos[2] = box.max[2] + 0.0001;
+				Player.super.pos[2] = box.max[2] + Player.boundingBoxExtent[2] + 0.0001;
 				if (Player.collides(.y, 0)) |_| {
 					Player.super.pos[2] = old;
 				} else {
@@ -645,12 +700,12 @@ pub fn update(deltaTime: f64) void {
 
 			if (!step) {
 				if (move[1] < 0) {
-					Player.super.pos[1] = box.max[1] + Player.radius;
+					Player.super.pos[1] = box.max[1] + Player.boundingBoxExtent[1];
 					while (Player.collides(.y, 0)) |_| {
 						Player.super.pos[1] += 1;
 					}
 				} else {
-					Player.super.pos[1] = box.min[1] - Player.radius;
+					Player.super.pos[1] = box.min[1] - Player.boundingBoxExtent[1];
 					while (Player.collides(.y, 0)) |_| {
 						Player.super.pos[1] -= 1;
 					}
@@ -663,19 +718,21 @@ pub fn update(deltaTime: f64) void {
 		Player.super.pos[2] += move[2];
 		if (Player.collides(.z, -move[2])) |box| {
 			if (move[2] < 0) {
-				Player.super.pos[2] = box.max[2];
+				Player.super.pos[2] = box.max[2] + Player.boundingBoxExtent[2];
 				while (Player.collides(.z, 0)) |_| {
 					Player.super.pos[2] += 1;
 				}
 				Player.onGround = true;
 			} else {
-				Player.super.pos[2] = box.min[2] - Player.height;
+				Player.super.pos[2] = box.min[2] - Player.boundingBoxExtent[2];
 				while (Player.collides(.z, 0)) |_| {
 					Player.super.pos[2] -= 1;
 				}
 			}
 			Player.super.vel[2] = 0;
 		}
+	} else {
+		Player.super.pos += move;
 	}
 
 	const biome = world.?.playerBiome.load(.monotonic);

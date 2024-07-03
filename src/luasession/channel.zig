@@ -1,26 +1,13 @@
-// borrowed from here
+// borrowed from here (heavly modified)
 // https://medium.com/@fwx5618177/zig-concurrency-implementation-methods-69bc31c14c56
 // ---
 
 const std = @import("std");
 const Thread = std.Thread;
 const Event = std.event;
-// const Channel = Event.Channel; // TODO: After Publish Async to make this work
 const Mutex = Thread.Mutex;
 const Condition = Thread.Condition;
 const spawn = Thread.spawn;
-
-const SelectOp = enum {
-    Send,
-    Recv,
-};
-
-const SelectCase = struct {
-    op: SelectOp,
-    channel: *Channel(i32),
-    value: ?i32,
-    is_ready: bool,
-};
 
 pub fn Channel(comptime T: type) type {
     return struct {
@@ -46,7 +33,6 @@ pub fn Channel(comptime T: type) type {
                 .end = 0,
                 .count = 0,
                 .closed = false,
-                .select_cases = std.ArrayList(*SelectCase).init(std.heap.page_allocator),
             };
         }
 
@@ -122,37 +108,6 @@ pub fn Channel(comptime T: type) type {
             self.not_full.signal();
 
             return item;
-        }
-
-        pub fn registerSelectCase(self: *Self, case: *SelectCase) !void {
-            self.mutex.lock();
-            defer self.mutex.unlock();
-
-            try self.select_cases.append(case);
-        }
-
-        pub fn trySelectOperation(self: *Self) bool {
-            for (self.select_cases.items) |case| {
-                switch (case.op) {
-                    .Send => {
-                        if (case.value != null and self.send_nb(case.value.?)) {
-                            return true;
-                        }
-                    },
-                    .Recv => {
-                        if (self.recv_nb()) |item| {
-                            case.value = item;
-                            case.is_ready = true;
-
-                            return true;
-                        } else {
-                            continue;
-                        }
-                    },
-                }
-            }
-
-            return false;
         }
     };
 }

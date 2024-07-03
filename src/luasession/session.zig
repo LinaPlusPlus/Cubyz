@@ -1,7 +1,10 @@
+const main = @import("root");
 const std = @import("std");
-const ziglua = @import("root").ziglua;
+const ziglua = main.ziglua;
 const LuaState = ziglua.Lua;
 const modList = @import("libraries/_index.zig");
+const Thread = std.Thread;
+const Channel = @import("channel.zig").Channel;
 
 const modLength = @typeInfo(modList).Struct.decls.len;
 
@@ -23,17 +26,45 @@ pub const Userdata = union(enum) {
 	//WIP
 };
 
+pub const EventData = union(enum) {
+	vec: [3]usize,
+	string: []u8,
+	int_usize: usize,
+	custom: *anyopaque
+	custom_sized: struct {
+		data: *anyopaque,
+		size: usize,
+	},
+
+}
+
+//NOTE the corrent implementation of Event is subject to change
+pub const EventHandler = fn (event: *Event, lua: *LuaSession) void;
+pub const Event = struct {
+	exec: *const EventHandler,
+	data: []EventData,
+};
+
 pub const LuaSession = struct {
 	initialized: bool = false,
 	eventSystem: bool = false, //represents initialized check and anyopaque table key
+	channel: Channel(Event) = undefined,
+
 
 	luaState: ?*LuaState = null,
-
 
 	pub fn init(self: *LuaSession, luaState: *LuaState) anyerror!void {
 		std.debug.assert(self.*.initialized == false);
 		self.*.initialized = true;
 		self.*.luaState = luaState;
+		const eventsPage = main.globalAllocator.create([100]Event);
+		self.*.channel.init(eventsPage);
+		const message = "hello other side!";
+
+
+		self.*.channel.send(.{ .exec = &testBind, .data = @ptrCast(@constCast(message)), .data_len = message.len });
+
+		_ = try Thread.spawn(.{},serviceThreadCode,.{self}); //TEMP handle thread
 	}
 
 	pub fn installCommonSystems(self: *LuaSession, targetPlatform: Platform) anyerror!void {
@@ -70,3 +101,54 @@ pub const LuaSession = struct {
 		luaState.setTable( -3 ); //pops `k` and `v`
 	}
 };
+
+fn serviceOuter(self: *LuaSession) void {
+	serviceThreadCode(self) catch |e| {
+		std.log.err("lua error: {}",.{@typeName(e)});
+		@panic("error in lua thread");
+	};
+}
+
+fn serviceThreadCode(self: *LuaSession) !void {
+	// Create an allocator
+	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+	const allocator = gpa.allocator();
+	defer _ = gpa.deinit();
+
+	// Initialize the Lua vm
+	var lua = try LuaState.init(&allocator);
+	defer lua.deinit();
+
+	// Add an integer to the Lua stack and retrieve it
+	lua.pushInteger(42);
+	std.debug.print("Hi over there! {}\n", .{try lua.toInteger(1)});
+
+	var message: ?Event = null;
+	var blockingRecev = false;
+	blockingRecev = true; //HACK, it should be variable but has no mutators yet
+
+	while (true) {
+		if (blockingRecev){
+			message = self.*.channel.recev();
+		} else {
+			message = self.*.channel.recev_nb();
+		}
+
+		// std.log.debug("{?}",.{message});
+		if (message != null) {
+			message.?.exec(&message.?,self);
+		}
+
+
+	}
+}
+
+
+fn testBind(event: *Event, lua: *LuaSession) void{
+	std.log.debug("sided: {s}",.{ @as([]const u8,@as([*]u8, @ptrCast(event.data))[0..event.data_len]) });
+	_ = lua;
+}
+
+
+
+

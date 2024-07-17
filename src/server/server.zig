@@ -23,7 +23,7 @@ const command = @import("command/_command.zig");
 
 const specificLuaLibs = @import("luaLibraries/_index.zig");
 
-pub const User = struct { // MARK: User
+pub const User = struct {
 	conn: *Connection = undefined,
 	player: Entity = .{},
 	timeDifference: utils.TimeDifference = .{},
@@ -140,9 +140,12 @@ fn installServerOnlyLuaMods() anyerror!void {
 		_ = try @field(specificLuaLibs, decl.name).install();
 	}
 }
-fn init(name: []const u8) void { // MARK: init()
+
+fn init(name: []const u8) void {
 	std.debug.assert(world == null); // There can only be one world.
+
 	command.init();
+
 	users = main.List(*User).init(main.globalAllocator);
 	userDeinitList = main.List(*User).init(main.globalAllocator);
 	lastTime = std.time.nanoTimestamp();
@@ -242,7 +245,7 @@ fn deinit() void {
 	command.deinit();
 }
 
-fn update() void { // MARK: update()
+fn update() void {
 	world.?.update();
 	mutex.lock();
 	for(users.items) |user| {
@@ -308,7 +311,7 @@ pub fn stop() void {
 	running.store(false, .monotonic);
 }
 
-pub fn disconnect(user: *User) void { // MARK: disconnect()
+pub fn disconnect(user: *User) void {
 	if(!user.connected.load(.unordered)) return;
 	// TODO: world.forceSave();
 	const message = std.fmt.allocPrint(main.stackAllocator.allocator, "{s} #ffff00left", .{user.name}) catch unreachable;
@@ -382,7 +385,7 @@ pub fn connect(user: *User) void {
 	users.append(user);
 }
 
-pub fn messageFrom(msg: []const u8, source: *User) void { // MARK: message
+pub fn messageFrom(msg: []const u8, source: *User) void {
 	if(msg[0] == '/') { // Command.
 		std.log.info("User \"{s}\" executed command \"{s}\"", .{source.name, msg}); // TODO use color \033[0;32m
 		command.execute(msg[1..], source);

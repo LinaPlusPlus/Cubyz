@@ -164,7 +164,7 @@ pub fn crosshairDirection(rotationMatrix: Mat4f, fovY: f32, width: u31, height: 
 	return adjusted;
 }
 
-pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPos: Vec3d) void {
+pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPos: Vec3d) void { // MARK: renderWorld()
 	worldFrameBuffer.bind();
 	c.glViewport(0, 0, lastWidth, lastHeight);
 	gpu_performance_measuring.startQuery(.clear);
@@ -291,7 +291,7 @@ pub fn renderWorld(world: *World, ambientLight: Vec3f, skyColor: Vec3f, playerPo
 	gpu_performance_measuring.stopQuery();
 }
 
-const Bloom = struct {
+const Bloom = struct { // MARK: Bloom
 	var buffer1: graphics.FrameBuffer = undefined;
 	var buffer2: graphics.FrameBuffer = undefined;
 	var emptyBuffer: graphics.Texture = undefined;
@@ -583,7 +583,7 @@ pub const MenuBackGround = struct {
 	}
 };
 
-pub const Frustum = struct {
+pub const Frustum = struct { // MARK: Frustum
 	const Plane = struct {
 		pos: Vec3f,
 		norm: Vec3f,
@@ -618,7 +618,7 @@ pub const Frustum = struct {
 	}
 };
 
-pub const MeshSelection = struct {
+pub const MeshSelection = struct { // MARK: MeshSelection
 	var shader: Shader = undefined;
 	var uniforms: struct {
 		projectionMatrix: c_int,
@@ -750,7 +750,7 @@ pub const MeshSelection = struct {
 	}
 
 	fn canPlaceBlock(pos: Vec3i, block: main.blocks.Block) bool {
-		if(main.game.Player.collideWithBlock(block, pos[0], pos[1], pos[2], main.game.Player.getPosBlocking(), main.game.Player.boundingBoxExtent, .{0, 0, 0}) != null) {
+		if(main.game.Player.collideWithBlock(block, pos[0], pos[1], pos[2], main.game.Player.getPosBlocking() + main.game.Player.innerBoundingBox.center(), main.game.Player.innerBoundingBox.extent(), .{0, 0, 0}) != null) {
 			return false;
 		}
 		return true; // TODO: Check other entities

@@ -10,5 +10,8 @@
 	"collide": false,
 	"model" : "cross",
 	"texture" : "cubyz:grass_vegetation",
+	"item": {
+		"texture" : "grass.png",
+	},
 	"lodReplacement" : "cubyz:air"
 }

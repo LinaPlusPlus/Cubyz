@@ -19,7 +19,6 @@ pub fn Channel(comptime T: type) type {
         end: usize,
         count: usize,
         closed: bool,
-        select_cases: std.ArrayList(*SelectCase), // support select usage
 
         const Self = @This();
 

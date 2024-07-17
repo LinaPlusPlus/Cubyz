@@ -30,13 +30,13 @@ pub const EventData = union(enum) {
 	vec: [3]usize,
 	string: []u8,
 	int_usize: usize,
-	custom: *anyopaque
+	custom: *anyopaque,
 	custom_sized: struct {
 		data: *anyopaque,
 		size: usize,
 	},
 
-}
+};
 
 //NOTE the corrent implementation of Event is subject to change
 pub const EventHandler = fn (event: *Event, lua: *LuaSession) void;
@@ -59,10 +59,10 @@ pub const LuaSession = struct {
 		self.*.luaState = luaState;
 		const eventsPage = main.globalAllocator.create([100]Event);
 		self.*.channel.init(eventsPage);
-		const message = "hello other side!";
+		//const message = "hello other side!";
 
 
-		self.*.channel.send(.{ .exec = &testBind, .data = @ptrCast(@constCast(message)), .data_len = message.len });
+		//self.*.channel.send(.{ .exec = &testBind, .data = @ptrCast(@constCast(message)), .data_len = message.len });
 
 		_ = try Thread.spawn(.{},serviceThreadCode,.{self}); //TEMP handle thread
 	}

@@ -3,8 +3,13 @@ const std = @import("std");
 const ziglua = main.ziglua;
 const LuaState = ziglua.Lua;
 const modList = @import("libraries/_index.zig");
-const Thread = std.Thread;
 const Channel = @import("channel.zig").Channel;
+const LuaSessionService = @import("service.zig").LuaSessionService;
+
+const luaEvent = @import("event.zig");
+const Event = luaEvent.Event;
+const EventHandler = luaEvent.EventHandler;
+const EventBody = luaEvent.EventBody;
 
 const modLength = @typeInfo(modList).Struct.decls.len;
 
@@ -13,8 +18,10 @@ pub const Error = error {
 	DoubleDeinit, //or not inited
 	Error,
 	IOError,
+	LuaCorruptedError,
 };
 
+//TODO dead code?
 pub const Platform = enum {
 	Server,
 	Client,
@@ -22,36 +29,28 @@ pub const Platform = enum {
 
 pub const Userdata = union(enum) {
 	None, // an "empty" userdata
-	Unique, // a strictly unique userdata
+	Unique, // a strictly unique (pointer) userdata
 	//WIP
 };
 
-pub const EventData = union(enum) {
-	vec: [3]usize,
-	string: []u8,
-	int_usize: usize,
-	custom: *anyopaque,
-	custom_sized: struct {
-		data: *anyopaque,
-		size: usize,
-	},
 
-};
-
-//NOTE the corrent implementation of Event is subject to change
-pub const EventHandler = fn (event: *Event, lua: *LuaSession) void;
-pub const Event = struct {
-	exec: *const EventHandler,
-	data: []EventData,
-};
+fn testDeinit(event: *Event, lua: *LuaSession) void {
+	_ = event;
+	_ = lua;
+	std.log.debug("an event object deinited correctly",.{});
+}
 
 pub const LuaSession = struct {
 	initialized: bool = false,
-	eventSystem: bool = false, //represents initialized check and anyopaque table key
+	wasInitialized: bool = false,
 	channel: Channel(Event) = undefined,
-
-
-	luaState: ?*LuaState = null,
+	service: LuaSessionService = .{
+		.luaState = undefined,
+		.resolversTable = .Unique,
+		.luaAnonTable = .Unique,
+		//TODO add stuff here
+	},
+	luaState: ?*LuaState = null, //OLD
 
 	pub fn init(self: *LuaSession, luaState: *LuaState) anyerror!void {
 		std.debug.assert(self.*.initialized == false);
@@ -59,14 +58,14 @@ pub const LuaSession = struct {
 		self.*.luaState = luaState;
 		const eventsPage = main.globalAllocator.create([100]Event);
 		self.*.channel.init(eventsPage);
-		//const message = "hello other side!";
 
-
-		//self.*.channel.send(.{ .exec = &testBind, .data = @ptrCast(@constCast(message)), .data_len = message.len });
-
-		_ = try Thread.spawn(.{},serviceThreadCode,.{self}); //TEMP handle thread
+		self.*.channel.send(.{
+			.deinit = testDeinit,
+			.body = .{ .initialize_service = .{} },
+		});
 	}
 
+	//OLD
 	pub fn installCommonSystems(self: *LuaSession, targetPlatform: Platform) anyerror!void {
 		std.debug.assert(self.*.initialized == true);
 		const luaState = self.*.luaState.?;
@@ -79,6 +78,7 @@ pub const LuaSession = struct {
 		}
 	}
 
+	//OLD
 	//TODO HACK file string is a const, change to *string or zig equivlant
 	//TODO from server.init(...) inline into function;
 	pub fn loadContextlessFile(self: *LuaSession) anyerror!void {
@@ -93,6 +93,7 @@ pub const LuaSession = struct {
 		try luaState.protectedCall(0,0,0);
 	}
 
+	//OLD
 	pub fn addNamedFunctionToTable(self: *LuaSession, name: []const u8, func: ziglua.ZigFn) void {
 		const luaState = self.*.luaState.?;
 		_ = luaState.pushString(name); //push `k`
@@ -102,52 +103,8 @@ pub const LuaSession = struct {
 	}
 };
 
-fn serviceOuter(self: *LuaSession) void {
-	serviceThreadCode(self) catch |e| {
-		std.log.err("lua error: {}",.{@typeName(e)});
-		@panic("error in lua thread");
-	};
-}
-
-fn serviceThreadCode(self: *LuaSession) !void {
-	// Create an allocator
-	var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-	const allocator = gpa.allocator();
-	defer _ = gpa.deinit();
-
-	// Initialize the Lua vm
-	var lua = try LuaState.init(&allocator);
-	defer lua.deinit();
-
-	// Add an integer to the Lua stack and retrieve it
-	lua.pushInteger(42);
-	std.debug.print("Hi over there! {}\n", .{try lua.toInteger(1)});
-
-	var message: ?Event = null;
-	var blockingRecev = false;
-	blockingRecev = true; //HACK, it should be variable but has no mutators yet
-
-	while (true) {
-		if (blockingRecev){
-			message = self.*.channel.recev();
-		} else {
-			message = self.*.channel.recev_nb();
-		}
-
-		// std.log.debug("{?}",.{message});
-		if (message != null) {
-			message.?.exec(&message.?,self);
-		}
 
 
-	}
-}
-
-
-fn testBind(event: *Event, lua: *LuaSession) void{
-	std.log.debug("sided: {s}",.{ @as([]const u8,@as([*]u8, @ptrCast(event.data))[0..event.data_len]) });
-	_ = lua;
-}
 
 
 

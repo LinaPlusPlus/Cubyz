@@ -11,7 +11,7 @@ chat.registerCommand("hello",function (message,user)
 end );
 
 
-local fail,luaDoThis = function(h) return h.."!" end;
+local fail,luaDoThis = nil,function(h) return h.."!" end;
 
 chat.registerCommand("luar",function (message,user)
     luaDoThis,fail = load(message);

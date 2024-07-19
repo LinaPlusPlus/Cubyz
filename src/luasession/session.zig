@@ -99,7 +99,7 @@ pub const LuaSession = struct {
 		const luaState = self.*.luaState orelse unreachable;
 
 		std.debug.assert(self.*.initialized == true);
-		try luaState.loadFile("server_init_contextless.lua",.text);
+		try luaState.loadFile("server_init_contextless_legacy.lua",.text);
 		// 0 inputs 0, returns, index of 0 for some reason
 		// argument 3 is `0` in this simmlar function, blindly cloning
 		// https://github.com/natecraddock/ziglua/blob/a7cf85fb871a95a46d4222fe3abdd3946e3e0dab/src/lib.zig#L2521

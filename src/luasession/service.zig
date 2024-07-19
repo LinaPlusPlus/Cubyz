@@ -77,7 +77,25 @@ fn teardown(self: *LuaSession,luaState: *LuaState) !void {
     _ = luaState;
 }
 
+fn runTheContextlessInitFile(self: *LuaSession,luaState: *LuaState) void{
+    _ = self;
+    //HACK sloppy error handling TEMP bevavor
+    luaState.loadFile("server_init_contextless.lua",.text) catch {
+        std.log.warn("lua service: no contextless init file",.{});
+        return;
+    };
+    luaState.protectedCall(0,0,0) catch {
+        // if failed
+        std.log.warn("server init: Contextless init file had an error, skipped it: {s}\n", .{luaState.toString(-1) catch unreachable});
+        // Remove the error from the stack and go back to the prompt
+        luaState.pop(1);
+        return;
+    };
+}
+
 fn setup(self: *LuaSession,luaState: *LuaState) !void {
+    luaState.openLibs();
+
     std.debug.assert(luaState.getTop() == 1); //stack should be empty here
     //BEGIN event handler registry
     luaState.*.pushLightUserdata( &self.*.service.resolversTable ); //push `k`
@@ -89,6 +107,7 @@ fn setup(self: *LuaSession,luaState: *LuaState) !void {
     luaState.newTable(); // push `v`
     luaState.setTable( ziglua.registry_index ); //pop `k` and `v`
     //END anon data registry
+    runTheContextlessInitFile(self,luaState);
 }
 
 

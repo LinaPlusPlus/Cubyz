@@ -5,11 +5,14 @@ const LuaState = ziglua.Lua;
 const modList = @import("libraries/_index.zig");
 const Channel = @import("channel.zig").Channel;
 const LuaSessionService = @import("service.zig").LuaSessionService;
+const Thread = std.Thread;
+const Mutex = Thread.Mutex;
 
 const luaEvent = @import("event.zig");
 const Event = luaEvent.Event;
 const EventHandler = luaEvent.EventHandler;
 const EventBody = luaEvent.EventBody;
+const EventBodyLen = luaEvent.EventBodyLen;
 
 const modLength = @typeInfo(modList).Struct.decls.len;
 
@@ -40,6 +43,11 @@ fn testDeinit(event: *Event, lua: *LuaSession) void {
 	std.log.debug("an event object deinited correctly",.{});
 }
 
+pub const HandlerArray = struct{
+	lock: Mutex,
+	data: [EventBodyLen] ?*EventHandler,
+};
+
 pub const LuaSession = struct {
 	initialized: bool = false,
 	wasInitialized: bool = false,
@@ -51,7 +59,10 @@ pub const LuaSession = struct {
 		//TODO add stuff here
 	},
 	luaState: ?*LuaState = null, //OLD
-
+	handlers: HandlerArray = .{
+		.data = [_]?*EventHandler{null} ** EventBodyLen,
+		.lock = .{},
+	},
 	pub fn init(self: *LuaSession, luaState: *LuaState) anyerror!void {
 		std.debug.assert(self.*.initialized == false);
 		self.*.initialized = true;
@@ -61,8 +72,10 @@ pub const LuaSession = struct {
 
 		self.*.channel.send(.{
 			.deinit = testDeinit,
-			.body = .{ .initialize_service = .{} },
+			.body = .{ .initialize = .{} },
 		});
+
+		try self.*.service.init(self);
 	}
 
 	//OLD

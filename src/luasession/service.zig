@@ -13,6 +13,7 @@ const luaEvent = @import("event.zig");
 const Event = luaEvent.Event;
 const EventHandler = luaEvent.EventHandler;
 const EventBody = luaEvent.EventBody;
+const EventBodyKind = luaEvent.EventBodyKind;
 
 pub const LuaSessionService = struct {
     resolversTable: Userdata,
@@ -57,14 +58,15 @@ pub const LuaSessionService = struct {
         self.*.luaState.replace( -2 ); // replace `t` with `result`, stack: `result,k`
         _ = self.*.luaState.pop( -1 ); // stack: `result`
     }
-    pub fn init(self: *LuaSession) !void {
-        _ = try Thread.spawn(.{},outer,.{self}); //TEMP handle thread
+    pub fn init(self: *LuaSessionService,parent: *LuaSession) !void {
+        _ = try Thread.spawn(.{},outer,.{self,parent}); //TEMP handle thread
     }
 };
 
-fn outer(self: *LuaSession) void {
-    threadCode(self) catch |e| {
-        std.log.err("lua service error: {}",.{e});
+fn outer(self: *LuaSessionService,parent: *LuaSession) void {
+    std.log.debug("lua service: spawned",.{});
+    threadCode(self,parent) catch |e| {
+        std.log.err("lua service: error: {}",.{e});
         @panic("error in lua thread");
     };
 }
@@ -90,7 +92,7 @@ fn setup(self: *LuaSession,luaState: *LuaState) !void {
 }
 
 
-fn threadCode(self: *LuaSession) !void {
+fn threadCode(self: *LuaSessionService, luaSession: *LuaSession) !void {
     // Create an allocator
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -99,30 +101,39 @@ fn threadCode(self: *LuaSession) !void {
     // Initialize the Lua vm
     var lua = try LuaState.init(&allocator);
     defer lua.deinit();
-    self.*.service.luaState = lua;
+    self.*.luaState = lua;
 
-    try setup(self,lua);
+    try setup(luaSession,lua);
 
     var message: ?Event = null;
     var blockingRecev = false;
     blockingRecev = true; //HACK, it should be variable but has no mutators yet
-
+    std.log.info("lua service: ready to take events",.{});
     while (true) {
         if (blockingRecev){
-            message = self.*.channel.recev();
+            message = luaSession.*.channel.recev();
         } else {
-            message = self.*.channel.recev_nb();
+            message = luaSession.*.channel.recev_nb();
         }
 
+        if (message == null) continue;
 
-        if (message != null) {
-            std.log.debug("{}",.{message.?});
-            //message.?.exec(&message.?,self);
+        const messageKindID: u8 = @intFromEnum(@as(EventBodyKind,message.?.body));
+        std.log.debug("event({}): {}",.{messageKindID,message.?});
+        //message.?.exec(&message.?,self);
+        luaSession.handlers.lock.lock();
+        const handler = luaSession.handlers.data[messageKindID];
+        luaSession.handlers.lock.unlock();
+        if(handler == null) {
+            std.log.err("lua service: event has no handler({}): {}",.{messageKindID,message.?});
+        } else {
+            handler.?(&message.?,luaSession);
         }
-
-
+        if (message.?.deinit != null) {
+            message.?.deinit.?(&message.?,luaSession);
+        }
     }
 
-    try teardown(self,lua);
+    try teardown(luaSession,lua);
 
 }
